@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ObjectVision — Deteksi Objek Real-Time</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #f7f8fc;
+      --surface:   #ffffff;
+      --border:    #e4e7f0;
+      --border-md: #d0d5e8;
+      --blue:      #3b6ef8;
+      --blue-lt:   #eef2ff;
+      --blue-mid:  #c7d4fd;
+      --indigo:    #6366f1;
+      --green:     #22c55e;
+      --green-lt:  #dcfce7;
+      --amber:     #f59e0b;
+      --red:       #ef4444;
+      --text:      #111827;
+      --text-md:   #374151;
+      --muted:     #6b7280;
+      --muted-lt:  #9ca3af;
+      --shadow-sm: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+      --shadow-md: 0 4px 16px rgba(0,0,0,.07), 0 2px 6px rgba(0,0,0,.04);
+      --shadow-lg: 0 12px 40px rgba(0,0,0,.09), 0 4px 12px rgba(0,0,0,.05);
+      --radius:    14px;
+      --radius-sm: 8px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Outfit', sans-serif;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ── SUBTLE DOT BACKGROUND ── */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: radial-gradient(circle, #d1d5db 1px, transparent 1px);
+      background-size: 28px 28px;
+      opacity: .45;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* ── SOFT GRADIENT BLOBS ── */
+    .blob {
+      position: fixed;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      filter: blur(72px);
+    }
+    .blob-1 {
+      width: 520px; height: 520px;
+      background: rgba(99,102,241,.12);
+      top: -120px; left: -80px;
+    }
+    .blob-2 {
+      width: 440px; height: 440px;
+      background: rgba(59,110,248,.1);
+      bottom: -100px; right: -60px;
+    }
+    .blob-3 {
+      width: 300px; height: 300px;
+      background: rgba(34,197,94,.08);
+      top: 50%; left: 55%;
+    }
+
+    /* ── NAV ── */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2.5rem;
+      height: 64px;
+      background: rgba(255,255,255,.88);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+    }
+    .nav-logo {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 1.15rem;
+      color: var(--blue);
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+    }
+    .nav-logo-icon {
+      width: 32px; height: 32px;
+      background: var(--blue);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+    }
+    .nav-logo span { color: var(--text); font-weight: 700; }
+    .nav-chip {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .62rem;
+      background: var(--blue-lt);
+      color: var(--blue);
+      padding: .2rem .6rem;
+      border-radius: 999px;
+      border: 1px solid var(--blue-mid);
+      letter-spacing: .04em;
+      font-weight: 500;
+    }
+    .nav-links { display: flex; gap: 1.8rem; }
+    .nav-links a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: .875rem;
+      font-weight: 500;
+      transition: color .18s;
+      position: relative;
+    }
+    .nav-links a::after {
+      content: '';
+      position: absolute;
+      left: 0; right: 0; bottom: -4px;
+      height: 2px;
+      background: var(--blue);
+      border-radius: 2px;
+      transform: scaleX(0);
+      transition: transform .2s;
+      transform-origin: left;
+    }
+    .nav-links a:hover { color: var(--blue); }
+    .nav-links a:hover::after { transform: scaleX(1); }
+
+    /* ── HERO ── */
+    .hero {
+      position: relative;
+      z-index: 1;
+      padding: 5rem 2.5rem 4rem;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .hero-eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: .5rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .72rem;
+      color: var(--blue);
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      background: var(--blue-lt);
+      border: 1px solid var(--blue-mid);
+      padding: .35rem .85rem;
+      border-radius: 999px;
+      margin-bottom: 1.8rem;
+      font-weight: 500;
+    }
+    .hero-eyebrow-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--blue);
+    }
+    .hero h1 {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: clamp(2.6rem, 5.5vw, 5rem);
+      line-height: 1.06;
+      letter-spacing: -.04em;
+      color: var(--text);
+      margin-bottom: 1.4rem;
+    }
+    .hero h1 .highlight {
+      background: linear-gradient(135deg, var(--blue) 0%, var(--indigo) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero-desc {
+      max-width: 560px;
+      color: var(--muted);
+      font-size: 1.05rem;
+      line-height: 1.78;
+      margin-bottom: 2.8rem;
+      font-weight: 400;
+    }
+    .hero-meta {
+      display: flex;
+      gap: 0;
+      flex-wrap: wrap;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      overflow: hidden;
+      max-width: fit-content;
+    }
+    .hero-meta-item {
+      display: flex;
+      flex-direction: column;
+      gap: .2rem;
+      padding: 1.2rem 2rem;
+      border-right: 1px solid var(--border);
+    }
+    .hero-meta-item:last-child { border-right: none; }
+    .hero-meta-item strong {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: var(--blue);
+      letter-spacing: -.03em;
+      line-height: 1;
+    }
+    .hero-meta-item span {
+      font-size: .75rem;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: .02em;
+    }
+
+    /* ── SECTION WRAPPER ── */
+    .section {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2.5rem 5rem;
+    }
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+    .section-number {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .65rem;
+      color: var(--blue);
+      background: var(--blue-lt);
+      border: 1px solid var(--blue-mid);
+      padding: .25rem .6rem;
+      border-radius: 6px;
+      letter-spacing: .1em;
+      font-weight: 500;
+    }
+    .section-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 1.55rem;
+      letter-spacing: -.03em;
+      color: var(--text);
+    }
+    .section-line {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ── DIVIDER ── */
+    .divider {
+      position: relative;
+      z-index: 1;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 2.5rem;
+      margin-bottom: 4.5rem;
+    }
+    .divider hr { border: none; border-top: 1px solid var(--border); }
+
+    /* ── DETECT GRID ── */
+    .detect-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+    @media (max-width: 768px) {
+      .detect-grid { grid-template-columns: 1fr; }
+      nav { padding: 0 1.2rem; }
+      .nav-links { display: none; }
+      .hero { padding: 3.5rem 1.2rem 3rem; }
+      .section { padding: 0 1.2rem 4rem; }
+    }
+
+    /* ── CAMERA CARD ── */
+    .cam-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow-md);
+    }
+    .cam-header {
+      padding: .85rem 1.3rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+    }
+    .cam-header-left {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    .cam-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .68rem;
+      letter-spacing: .08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    .status-pill {
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .62rem;
+      letter-spacing: .06em;
+      color: var(--muted-lt);
+      background: #f3f4f6;
+      border: 1px solid var(--border);
+      padding: .2rem .6rem;
+      border-radius: 999px;
+      transition: all .3s;
+    }
+    .status-pill.live {
+      color: var(--green);
+      background: var(--green-lt);
+      border-color: #bbf7d0;
+    }
+    .status-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+      transition: all .3s;
+    }
+    .status-pill.live .status-dot { animation: pulse 1.4s infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    #webcam-container {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1;
+      background: #f0f2f8;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #webcam-container canvas {
+      width: 100% !important;
+      height: 100% !important;
+      object-fit: cover;
+      display: block;
+    }
+    .cam-placeholder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      color: var(--muted-lt);
+      background: linear-gradient(135deg, #f7f8fc, #eef0f8);
+    }
+    .cam-placeholder-icon {
+      width: 72px; height: 72px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: var(--shadow-sm);
+    }
+    .cam-placeholder p {
+      font-size: .85rem;
+      letter-spacing: .02em;
+      font-weight: 500;
+      color: var(--muted);
+    }
+
+    /* Corner brackets */
+    .cam-corner {
+      position: absolute;
+      width: 22px; height: 22px;
+      z-index: 10;
+      pointer-events: none;
+    }
+    .cam-corner.tl { top: 10px; left: 10px; border-top: 2.5px solid var(--blue); border-left: 2.5px solid var(--blue); border-radius: 3px 0 0 0; }
+    .cam-corner.tr { top: 10px; right: 10px; border-top: 2.5px solid var(--blue); border-right: 2.5px solid var(--blue); border-radius: 0 3px 0 0; }
+    .cam-corner.bl { bottom: 10px; left: 10px; border-bottom: 2.5px solid var(--blue); border-left: 2.5px solid var(--blue); border-radius: 0 0 0 3px; }
+    .cam-corner.br { bottom: 10px; right: 10px; border-bottom: 2.5px solid var(--blue); border-right: 2.5px solid var(--blue); border-radius: 0 0 3px 0; }
+
+    .scan-line {
+      position: absolute;
+      left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, rgba(59,110,248,.6), transparent);
+      top: 0;
+      animation: scan 2.4s ease-in-out infinite;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .scan-line.active { opacity: 1; }
+    @keyframes scan { 0%{top:0%} 100%{top:100%} }
+
+    .cam-footer {
+      padding: .75rem 1.3rem;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .63rem;
+      color: var(--muted-lt);
+      display: flex;
+      justify-content: space-between;
+      background: var(--bg);
+    }
+
+    /* ── RESULTS CARD ── */
+    .results-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      box-shadow: var(--shadow-md);
+    }
+    .results-header {
+      padding: .85rem 1.3rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--bg);
+    }
+    .results-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .68rem;
+      letter-spacing: .08em;
+      color: var(--muted);
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+    #top-label {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: .9rem;
+      color: var(--blue);
+      background: var(--blue-lt);
+      padding: .25rem .85rem;
+      border-radius: 999px;
+      border: 1px solid var(--blue-mid);
+      min-width: 80px;
+      text-align: center;
+      transition: all .3s;
+    }
+
+    .results-body {
+      padding: 1.5rem 1.3rem;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 1.2rem;
+    }
+    .results-empty {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .6rem;
+      padding: 2.5rem 0;
+      color: var(--muted-lt);
+    }
+    .results-empty p { font-size: .82rem; font-weight: 500; }
+
+    .class-row { display: flex; flex-direction: column; gap: .55rem; }
+    .class-label-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .class-name {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 600;
+      font-size: .9rem;
+      color: var(--text-md);
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+    }
+    .class-icon { font-size: .95rem; }
+    .class-pct {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .75rem;
+      color: var(--muted-lt);
+      font-weight: 500;
+      transition: all .3s;
+      min-width: 38px;
+      text-align: right;
+    }
+    .class-pct.high { color: var(--blue); font-weight: 700; }
+
+    .bar-track {
+      height: 8px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      border-radius: 999px;
+      width: 0%;
+      transition: width .35s cubic-bezier(.4,0,.2,1), background .3s;
+      background: var(--border-md);
+    }
+    .bar-fill.hot {
+      background: linear-gradient(90deg, var(--indigo), var(--blue));
+    }
+
+    .results-footer {
+      padding: .75rem 1.3rem;
+      border-top: 1px solid var(--border);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .63rem;
+      color: var(--muted-lt);
+      background: var(--bg);
+    }
+
+    /* ── BUTTONS ── */
+    .btn-group { display: flex; gap: .75rem; margin-top: 1.3rem; }
+    .btn {
+      font-family: 'Outfit', sans-serif;
+      font-size: .82rem;
+      font-weight: 600;
+      letter-spacing: .01em;
+      padding: .7rem 1.4rem;
+      border-radius: var(--radius-sm);
+      border: none;
+      cursor: pointer;
+      transition: all .18s;
+      display: flex;
+      align-items: center;
+      gap: .45rem;
+    }
+    .btn-primary {
+      background: var(--blue);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(59,110,248,.28);
+    }
+    .btn-primary:hover { background: #2d5ef0; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(59,110,248,.36); }
+    .btn-primary:active { transform: translateY(0); }
+    .btn-primary:disabled { background: var(--border); color: var(--muted-lt); box-shadow: none; cursor: not-allowed; transform: none; }
+    .btn-ghost {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+    }
+    .btn-ghost:hover { border-color: var(--blue); color: var(--blue); }
+    .btn-ghost:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-hint {
+      margin-top: .7rem;
+      font-size: .75rem;
+      color: var(--muted-lt);
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: .4rem;
+    }
+
+    /* ── STATS GRID ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+    }
+    @media (max-width: 640px) { .stats-grid { grid-template-columns: repeat(2,1fr); } }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.4rem 1.3rem;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s, transform .2s, border-color .2s;
+      position: relative;
+      overflow: hidden;
+    }
+    .stat-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-2px);
+      border-color: var(--blue-mid);
+    }
+    .stat-card-top {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--blue), var(--indigo));
+      border-radius: 999px 999px 0 0;
+    }
+    .stat-value {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 2rem;
+      color: var(--blue);
+      letter-spacing: -.04em;
+      line-height: 1;
+      margin-bottom: .4rem;
+    }
+    .stat-label {
+      font-size: .78rem;
+      color: var(--muted);
+      font-weight: 500;
+      letter-spacing: .02em;
+    }
+
+    /* ── CLASSES GRID ── */
+    .classes-grid {
+      display: grid;
+      grid-template-columns: repeat(4,1fr);
+      gap: 1rem;
+    }
+    @media (max-width: 640px) { .classes-grid { grid-template-columns: repeat(2,1fr); } }
+
+    .class-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow .2s, transform .2s, border-color .2s;
+      cursor: default;
+    }
+    .class-card:hover {
+      box-shadow: var(--shadow-md);
+      transform: translateY(-3px);
+      border-color: var(--blue-mid);
+    }
+    .class-card-img {
+      width: 100%;
+      aspect-ratio: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 4.5rem;
+      background: linear-gradient(135deg, #f0f4ff, #eef2ff);
+      position: relative;
+    }
+    .class-card-img::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 55% 35%, rgba(99,102,241,.07), transparent 65%);
+    }
+    .class-card-body { padding: 1rem 1.1rem 1.1rem; }
+    .class-card-name {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: .95rem;
+      margin-bottom: .3rem;
+      color: var(--text);
+    }
+    .class-card-count {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .65rem;
+      color: var(--muted-lt);
+      font-weight: 400;
+    }
+    .class-card-badge {
+      display: inline-block;
+      margin-top: .55rem;
+      font-size: .7rem;
+      font-weight: 600;
+      color: var(--green);
+      background: var(--green-lt);
+      border: 1px solid #bbf7d0;
+      padding: .15rem .5rem;
+      border-radius: 999px;
+    }
+
+    /* ── STEPS ── */
+    .steps { display: flex; flex-direction: column; }
+    .step {
+      display: grid;
+      grid-template-columns: 56px 1fr;
+      gap: 1.5rem;
+      padding: 1.8rem 0;
+      border-bottom: 1px solid var(--border);
+      align-items: start;
+    }
+    .step:last-child { border-bottom: none; }
+    .step-num-wrap {
+      display: flex;
+      align-items: flex-start;
+      padding-top: .1rem;
+    }
+    .step-num {
+      width: 38px; height: 38px;
+      background: var(--blue-lt);
+      border: 1.5px solid var(--blue-mid);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 500;
+      font-size: .8rem;
+      color: var(--blue);
+      flex-shrink: 0;
+    }
+    .step-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      font-size: 1.05rem;
+      margin-bottom: .45rem;
+      color: var(--text);
+    }
+    .step-desc { font-size: .88rem; color: var(--muted); line-height: 1.75; font-weight: 400; }
+    .step-tag {
+      display: inline-block;
+      margin-top: .7rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .63rem;
+      background: var(--blue-lt);
+      color: var(--blue);
+      border: 1px solid var(--blue-mid);
+      padding: .2rem .6rem;
+      border-radius: 6px;
+      letter-spacing: .04em;
+      font-weight: 500;
+    }
+
+    /* ── FOOTER ── */
+    footer {
+      position: relative;
+      z-index: 1;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      padding: 2rem 2.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .footer-left { font-size: .82rem; color: var(--muted); line-height: 1.65; }
+    .footer-left strong { color: var(--text); font-weight: 700; }
+    .footer-right { display: flex; gap: .6rem; flex-wrap: wrap; }
+    .footer-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: .63rem;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      background: var(--bg);
+      padding: .3rem .7rem;
+      border-radius: 6px;
+      letter-spacing: .04em;
+      font-weight: 500;
+    }
+
+    /* ── TOAST ── */
+    #toast {
+      position: fixed;
+      bottom: 2rem; left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: var(--text);
+      color: #fff;
+      font-family: 'Outfit', sans-serif;
+      font-size: .8rem;
+      font-weight: 500;
+      padding: .75rem 1.5rem;
+      border-radius: 10px;
+      z-index: 999;
+      box-shadow: var(--shadow-lg);
+      transition: transform .4s cubic-bezier(.4,0,.2,1);
+      white-space: nowrap;
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+  <!-- BLOBS -->
+  <div class="blob blob-1"></div>
+  <div class="blob blob-2"></div>
+  <div class="blob blob-3"></div>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-logo">
+      <div class="nav-logo-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <circle cx="11" cy="11" r="7"/><path d="m21 21-3.5-3.5"/>
+          <path d="M11 8v3l2 2"/>
+        </svg>
+      </div>
+      <span>Object</span>Vision
+      <span class="nav-chip">TFjs</span>
+    </div>
+    <div class="nav-links">
+      <a href="#detect">Live Demo</a>
+      <a href="#info">Dataset</a>
+      <a href="#how">Metodologi</a>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <header class="hero">
+    <p class="hero-eyebrow">
+      <span class="hero-eyebrow-dot"></span>
+      Visi Komputer · Teachable Machine
+    </p>
+    <h1>Deteksi Objek<br /><span class="highlight">Real-Time</span><br />Berbasis CNN</h1>
+    <p class="hero-desc">
+      Model image classification yang dilatih menggunakan Google Teachable Machine untuk mengenali
+      tiga perangkat elektronik — Mouse, Gamepad, Remote TV — secara langsung melalui kamera.
+    </p>
+    <div class="hero-meta">
+      <div class="hero-meta-item"><strong>100%</strong><span>Training Accuracy</span></div>
+      <div class="hero-meta-item"><strong>4</strong><span>Kelas Objek</span></div>
+      <div class="hero-meta-item"><strong>1.609</strong><span>Total Gambar</span></div>
+      <div class="hero-meta-item"><strong>100</strong><span>Epochs</span></div>
+    </div>
+  </header>
+
+  <!-- LIVE DETECT -->
+  <section class="section" id="detect">
+    <div class="section-header">
+      <span class="section-number">01</span>
+      <h2 class="section-title">Live Detection</h2>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="detect-grid">
+      <!-- Camera -->
+      <div>
+        <div class="cam-card">
+          <div class="cam-header">
+            <div class="cam-header-left">
+              <span class="cam-title">Camera Feed</span>
+            </div>
+            <div class="status-pill" id="status-pill">
+              <div class="status-dot"></div>
+              <span id="status-text">Tidak Aktif</span>
+            </div>
+          </div>
+          <div id="webcam-container">
+            <div class="cam-placeholder" id="cam-placeholder">
+              <div class="cam-placeholder-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.5" stroke-linecap="round">
+                  <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/>
+                </svg>
+              </div>
+              <p>Kamera belum aktif</p>
+            </div>
+            <div class="cam-corner tl"></div>
+            <div class="cam-corner tr"></div>
+            <div class="cam-corner bl"></div>
+            <div class="cam-corner br"></div>
+            <div class="scan-line" id="scan-line"></div>
+          </div>
+          <div class="cam-footer">
+            <span>224 × 224 px</span>
+            <span id="cam-fps">— fps</span>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button class="btn btn-primary" id="btn-start" onclick="init()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Mulai Kamera
+          </button>
+          <button class="btn btn-ghost" id="btn-stop" onclick="stopCam()" disabled>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            Stop
+          </button>
+        </div>
+        <p class="btn-hint">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Izinkan akses kamera saat diminta browser
+        </p>
+      </div>
+
+      <!-- Results -->
+      <div class="results-card">
+        <div class="results-header">
+          <span class="results-title">Prediction Output</span>
+          <span id="top-label">Menunggu…</span>
+        </div>
+        <div class="results-body" id="label-container">
+          <div class="results-empty" id="results-empty">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5" stroke-linecap="round">
+              <circle cx="11" cy="11" r="7"/><path d="m21 21-3.5-3.5"/>
+            </svg>
+            <p>Belum ada prediksi</p>
+          </div>
+        </div>
+        <div class="results-footer" id="inf-time">inference time: — ms</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"><hr /></div>
+
+  <!-- DATASET INFO -->
+  <section class="section" id="info">
+    <div class="section-header">
+      <span class="section-number">02</span>
+      <h2 class="section-title">Dataset &amp; Kelas</h2>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="classes-grid" style="margin-bottom:2.5rem;">
+      <div class="class-card">
+        <div class="class-card-img">🖱️</div>
+        <div class="class-card-body">
+          <div class="class-card-name">Mouse</div>
+          <div class="class-card-count">402 gambar · Webcam</div>
+          <span class="class-card-badge">Kelas 1</span>
+        </div>
+      </div>
+      <div class="class-card">
+        <div class="class-card-img">🎮</div>
+        <div class="class-card-body">
+          <div class="class-card-name">Gamepad</div>
+          <div class="class-card-count">406 gambar · Webcam</div>
+          <span class="class-card-badge">Kelas 2</span>
+        </div>
+      </div>
+      <div class="class-card">
+        <div class="class-card-img">📺</div>
+        <div class="class-card-body">
+          <div class="class-card-name">Remote TV</div>
+          <div class="class-card-count">397 gambar · Webcam</div>
+          <span class="class-card-badge">Kelas 3</span>
+        </div>
+      </div>
+      <div class="class-card">
+        <div class="class-card-img">🏔️</div>
+        <div class="class-card-body">
+          <div class="class-card-name">Background</div>
+          <div class="class-card-count">404 gambar · Webcam</div>
+          <span class="class-card-badge">Kelas 0</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-card-top"></div>
+        <div class="stat-value">100%</div>
+        <div class="stat-label">Training Accuracy</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-top"></div>
+        <div class="stat-value">0.0001</div>
+        <div class="stat-label">Final Loss</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-top"></div>
+        <div class="stat-value">80s</div>
+        <div class="stat-label">Durasi Training</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-card-top"></div>
+        <div class="stat-value">16</div>
+        <div class="stat-label">Batch Size</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"><hr /></div>
+
+  <!-- HOW IT WORKS -->
+  <section class="section" id="how">
+    <div class="section-header">
+      <span class="section-number">03</span>
+      <h2 class="section-title">Metodologi</h2>
+      <div class="section-line"></div>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="step-num-wrap"><div class="step-num">01</div></div>
+        <div>
+          <div class="step-title">Pengumpulan Dataset</div>
+          <p class="step-desc">Sebanyak 1.609 gambar dikumpulkan menggunakan webcam langsung di Google Teachable Machine. Setiap kelas merekam objek dari berbagai sudut, jarak, dan kondisi pencahayaan untuk meningkatkan generalisasi model.</p>
+          <span class="step-tag">≥400 gambar/kelas</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num-wrap"><div class="step-num">02</div></div>
+        <div>
+          <div class="step-title">Konfigurasi &amp; Training</div>
+          <p class="step-desc">Model dilatih dengan 100 epoch, learning rate 0.001, dan batch size 16 menggunakan arsitektur MobileNet yang di-fine-tune melalui transfer learning. Seluruh proses berjalan langsung di browser via TensorFlow.js.</p>
+          <span class="step-tag">MobileNet · Transfer Learning</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num-wrap"><div class="step-num">03</div></div>
+        <div>
+          <div class="step-title">Evaluasi &amp; Pengujian</div>
+          <p class="step-desc">Setiap kelas diuji real-time via webcam. Seluruh kelas mencapai confidence score 100% tanpa kebingungan antar kelas, menunjukkan tidak ada overfitting maupun underfitting pada model akhir.</p>
+          <span class="step-tag">Confidence 100% · 4/4 Kelas</span>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-num-wrap"><div class="step-num">04</div></div>
+        <div>
+          <div class="step-title">Export &amp; Integrasi Web</div>
+          <p class="step-desc">Model diekspor dalam format TensorFlow.js (model.json + weights.bin + metadata.json) dan diintegrasikan langsung ke halaman HTML ini. Inferensi berjalan sepenuhnya di browser tanpa server backend.</p>
+          <span class="step-tag">TFjs · Client-Side · GitHub Pages</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="footer-right">
+      <span class="footer-badge">TFjs v1.3.1</span>
+      <span class="footer-badge">TM v2.4.14</span>
+      <span class="footer-badge">MobileNet</span>
+    </div>
+  </footer>
+
+  <!-- TOAST -->
+  <div id="toast"></div>
+
+  <script>
+    const MODEL_URL = '/model.json';
+    const METADATA_URL = '/metadata.json';
+    const ICONS = { Mouse: '🖱️', Gamepad: '🎮', Remote: '📺', Background: '🏔️' };
+
+    let model, webcam, maxPredictions, animFrame;
+    let running = false;
+    let lastTime = performance.now();
+    let frameCount = 0;
+
+    function showToast(msg, duration = 3000) {
+      const t = document.getElementById('toast');
+      t.textContent = msg;
+      t.classList.add('show');
+      setTimeout(() => t.classList.remove('show'), duration);
+    }
+
+    async function init() {
+      const btn = document.getElementById('btn-start');
+      btn.textContent = 'Memuat model…';
+      btn.disabled = true;
+
+      try {
+        model = await tmImage.load(MODEL_URL, METADATA_URL);
+        maxPredictions = model.getTotalClasses();
+      } catch (e) {
+        showToast('⚠ Gagal memuat model. Pastikan model.json tersedia.');
+        btn.textContent = 'Mulai Kamera';
+        btn.disabled = false;
+        return;
+      }
+
+      try {
+        webcam = new tmImage.Webcam(224, 224, true);
+        await webcam.setup();
+        await webcam.play();
+      } catch (e) {
+        showToast('⚠ Akses kamera ditolak atau tidak tersedia.');
+        btn.textContent = 'Mulai Kamera';
+        btn.disabled = false;
+        return;
+      }
+
+      document.getElementById('cam-placeholder').style.display = 'none';
+      document.getElementById('webcam-container').appendChild(webcam.canvas);
+
+      const pill = document.getElementById('status-pill');
+      pill.classList.add('live');
+      document.getElementById('status-text').textContent = 'Live';
+      document.getElementById('scan-line').classList.add('active');
+      document.getElementById('btn-stop').disabled = false;
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/></svg> Berjalan`;
+
+      buildLabels();
+      running = true;
+      loop();
+    }
+
+    function buildLabels() {
+      const container = document.getElementById('label-container');
+      const empty = document.getElementById('results-empty');
+      if (empty) empty.remove();
+      container.innerHTML = '';
+      for (let i = 0; i < maxPredictions; i++) {
+        const name = model.getLabels ? model.getLabels()[i] : `Kelas ${i}`;
+        const icon = ICONS[name] || '📦';
+        container.innerHTML += `
+          <div class="class-row" id="row-${i}">
+            <div class="class-label-row">
+              <span class="class-name"><span class="class-icon">${icon}</span> ${name}</span>
+              <span class="class-pct" id="pct-${i}">0%</span>
+            </div>
+            <div class="bar-track"><div class="bar-fill" id="bar-${i}"></div></div>
+          </div>`;
+      }
+    }
+
+    async function loop() {
+      if (!running) return;
+      webcam.update();
+
+      const t0 = performance.now();
+      const prediction = await model.predict(webcam.canvas);
+      const inferMs = (performance.now() - t0).toFixed(1);
+
+      frameCount++;
+      const elapsed = performance.now() - lastTime;
+      if (elapsed > 1000) {
+        document.getElementById('cam-fps').textContent = `${Math.round(frameCount * 1000 / elapsed)} fps`;
+        frameCount = 0;
+        lastTime = performance.now();
+      }
+
+      document.getElementById('inf-time').textContent = `inference time: ${inferMs} ms`;
+
+      let topIdx = 0, topVal = 0;
+      prediction.forEach((p, i) => { if (p.probability > topVal) { topVal = p.probability; topIdx = i; } });
+      document.getElementById('top-label').textContent = prediction[topIdx].className;
+
+      prediction.forEach((p, i) => {
+        const pct = Math.round(p.probability * 100);
+        const pctEl = document.getElementById(`pct-${i}`);
+        const barEl = document.getElementById(`bar-${i}`);
+        pctEl.textContent = `${pct}%`;
+        pctEl.classList.toggle('high', pct > 50);
+        barEl.style.width = `${pct}%`;
+        barEl.classList.toggle('hot', pct > 50);
+      });
+
+      animFrame = requestAnimationFrame(loop);
+    }
+
+    function stopCam() {
+      running = false;
+      if (animFrame) cancelAnimationFrame(animFrame);
+      if (webcam) webcam.stop();
+
+      const container = document.getElementById('webcam-container');
+      const canvas = container.querySelector('canvas');
+      if (canvas) canvas.remove();
+
+      document.getElementById('cam-placeholder').style.display = 'flex';
+      const pill = document.getElementById('status-pill');
+      pill.classList.remove('live');
+      document.getElementById('status-text').textContent = 'Tidak Aktif';
+      document.getElementById('scan-line').classList.remove('active');
+      document.getElementById('btn-stop').disabled = true;
+      document.getElementById('btn-start').disabled = false;
+      document.getElementById('btn-start').innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Mulai Kamera`;
+      document.getElementById('top-label').textContent = 'Menunggu…';
+      document.getElementById('cam-fps').textContent = '— fps';
+      document.getElementById('inf-time').textContent = 'inference time: — ms';
+      document.getElementById('label-container').innerHTML = `
+        <div class="results-empty" id="results-empty">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#d1d5db" stroke-width="1.5" stroke-linecap="round">
+            <circle cx="11" cy="11" r="7"/><path d="m21 21-3.5-3.5"/>
+          </svg>
+          <p>Belum ada prediksi</p>
+        </div>`;
+    }
+  </script>
+</body>
+</html>
